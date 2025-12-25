@@ -3,12 +3,19 @@
 """
 УЛУЧШЕННЫЙ ГЕНЕРАТОР ФОРМ ДЛЯ BLACKRUSSIA
 Вставляешь форму одним блоком → заполняешь → получаешь BB-код
+Версия: 1.1.0
 """
 
 import json
 import os
 import re
 import hashlib
+import urllib.request
+import urllib.error
+import datetime
+import webbrowser
+import tempfile
+import sys
 from pathlib import Path
 
 class ImprovedFormGenerator:
@@ -39,16 +46,24 @@ class ImprovedFormGenerator:
                   "answer": "#EAFAF1",    # Светло-зеленый для ответов
                   "link": "#27AE60"},     # Зеленый для ссылок
         }
+        
         self.output_folder = "form_blackrussia"
+        
+        # Информация о версии и обновлениях
+        self.current_version = "1.1.0"
+        self.update_check_url = "https://raw.githubusercontent.com/1hysq/forum_disain/main/version.txt"
+        self.github_page_url = "https://github.com/1hysq/forum_disain"
         
         # Создаем папку при инициализации
         self.create_output_folder()
+        
+        # Проверяем обновления при запуске
+        self.check_for_updates_on_start()
     
     def create_output_folder(self):
         """Создание папки для сохранения результатов"""
         if not os.path.exists(self.output_folder):
             os.makedirs(self.output_folder)
-            print(f"📁 Создана папка для сохранения: {self.output_folder}")
     
     def clear_screen(self):
         """Очистка экрана"""
@@ -60,54 +75,107 @@ class ImprovedFormGenerator:
         print(f"🎮 {text}")
         print("═" * 60)
     
-    def validate_input(self, question_text, answer, field_type):
-        """Проверка введенных данных на валидность"""
-        question_lower = question_text.lower()
+    def check_for_updates_on_start(self):
+        """Проверка обновлений при запуске программы"""
+        try:
+            # Проверяем, когда последний раз проверяли обновления
+            last_check_file = "last_update_check.txt"
+            should_check = True
+            
+            if os.path.exists(last_check_file):
+                with open(last_check_file, 'r') as f:
+                    try:
+                        last_check = datetime.datetime.fromisoformat(f.read().strip())
+                        now = datetime.datetime.now()
+                        # Проверяем раз в день
+                        if (now - last_check).days < 1:
+                            should_check = False
+                    except:
+                        pass
+            
+            if should_check:
+                self.check_for_updates(silent=True)
+                # Сохраняем время проверки
+                with open(last_check_file, 'w') as f:
+                    f.write(datetime.datetime.now().isoformat())
+                    
+        except Exception as e:
+            # Молча игнорируем ошибки при проверке обновлений
+            pass
+    
+    def check_for_updates(self, silent=False):
+        """Проверка наличия обновлений"""
+        try:
+            if not silent:
+                print("\n🔍 Проверяем наличие обновлений...")
+            
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            req = urllib.request.Request(self.update_check_url, headers=headers)
+            
+            with urllib.request.urlopen(req, timeout=5) as response:
+                content = response.read().decode('utf-8').strip()
+                
+                # Ищем версию в формате X.X.X
+                version_match = re.search(r'(\d+\.\d+\.\d+)', content)
+                if version_match:
+                    latest_version = version_match.group(1)
+                    
+                    # Сравниваем версии
+                    if self.compare_versions(self.current_version, latest_version) < 0:
+                        if not silent:
+                            print(f"\n🎉 Доступно обновление!")
+                            print(f"   Текущая версия: {self.current_version}")
+                            print(f"   Новая версия: {latest_version}")
+                            print(f"\n📥 Скачать обновление можно по ссылке:")
+                            print(f"   {self.github_page_url}")
+                            
+                            choice = input("\nХотите открыть страницу загрузки? (y/n): ").lower()
+                            if choice == 'y':
+                                webbrowser.open(self.github_page_url)
+                        return True
+                    else:
+                        if not silent:
+                            print("✅ У вас установлена последняя версия!")
+                        return False
+                else:
+                    if not silent:
+                        print("❌ Не удалось получить версию с сервера")
+                    return False
+                
+        except urllib.error.URLError:
+            if not silent:
+                print("❌ Не удалось проверить обновления. Проверьте подключение к интернету.")
+        except Exception as e:
+            if not silent:
+                print(f"❌ Ошибка при проверке обновлений: {e}")
+        return False
+    
+    def compare_versions(self, v1, v2):
+        """Сравнение версий"""
+        def parse_version(v):
+            # Извлекаем числа из версии
+            parts = []
+            for part in v.split('.'):
+                num = re.search(r'\d+', part)
+                if num:
+                    parts.append(int(num.group()))
+                else:
+                    parts.append(0)
+            # Дополняем до 3 частей
+            while len(parts) < 3:
+                parts.append(0)
+            return parts
         
-        # Проверка возраста
-        if any(word in question_lower for word in ["возраст", "лет", "годиков", "года", "годков", "age", "сколько лет"]):
-            try:
-                age = int(answer)
-                if age < 14 or age > 100:
-                    return False, "⚠️  Возраст должен быть в диапазоне от 14 до 100 лет."
-                if age < 18:
-                    return True, "⚠️  Внимание: вам меньше 18 лет. Убедитесь, что это правильно."
-            except ValueError:
-                return False, "⚠️  Возраст должен быть целым числом."
+        v1_parts = parse_version(v1)
+        v2_parts = parse_version(v2)
         
-        # Проверка никнейма (не пустой и не слишком длинный)
-        if any(word in question_lower for word in ["никнейм", "ник", "логин", "nickname", "nick"]):
-            if not answer.strip():
-                return False, "⚠️  Никнейм не может быть пустым."
-            if len(answer) > 25:
-                return False, "⚠️  Никнейм слишком длинный (максимум 25 символов)."
-            if len(answer) < 3:
-                return False, "⚠️  Никнейм слишком короткий (минимум 3 символа)."
-        
-        # Проверка уровня
-        if any(word in question_lower for word in ["уровень", "level", "lvl"]):
-            try:
-                level = int(answer)
-                if level < 1 or level > 100:
-                    return False, "⚠️  Уровень должен быть в диапазоне от 1 до 100."
-            except ValueError:
-                return False, "⚠️  Уровень должен быть целым числом."
-        
-        # Проверка часового пояса
-        if any(word in question_lower for word in ["часовой пояс", "таймзона", "timezone", "часовой"]):
-            if not any(word in answer.lower() for word in ["gmt", "utc", "msk", "+", "-"]):
-                return True, "⚠️  Убедитесь, что правильно указали часовой пояс (например, GMT+3, UTC+5, MSK)."
-        
-        # Проверка ссылок
-        if field_type == "link" or field_type == "screenshot":
-            if not answer.startswith(("http://", "https://")):
-                return False, "⚠️  Ссылка должна начинаться с http:// или https://"
-        
-        # Общая проверка на слишком короткий ответ
-        if len(answer.strip()) < 2 and field_type == "text":
-            return True, "⚠️  Ответ очень короткий. Убедитесь, что это правильно."
-        
-        return True, "✅ Ответ принят"
+        # Сравниваем по частям
+        for i in range(3):
+            if v1_parts[i] < v2_parts[i]:
+                return -1
+            elif v1_parts[i] > v2_parts[i]:
+                return 1
+        return 0
     
     def get_form_input(self):
         """Получение формы от пользователя - УЛУЧШЕННАЯ ВЕРСИЯ"""
@@ -374,6 +442,55 @@ class ImprovedFormGenerator:
         
         # По умолчанию - текст
         return "text"
+    
+    def validate_input(self, question_text, answer, field_type):
+        """Проверка введенных данных на валидность"""
+        question_lower = question_text.lower()
+        
+        # Проверка возраста
+        if any(word in question_lower for word in ["возраст", "лет", "годиков", "года", "годков", "age", "сколько лет"]):
+            try:
+                age = int(answer)
+                if age < 14 or age > 100:
+                    return False, "⚠️  Возраст должен быть в диапазоне от 14 до 100 лет."
+                if age < 18:
+                    return True, "⚠️  Внимание: вам меньше 18 лет. Убедитесь, что это правильно."
+            except ValueError:
+                return False, "⚠️  Возраст должен быть целым числом."
+        
+        # Проверка никнейма (не пустой и не слишком длинный)
+        if any(word in question_lower for word in ["никнейм", "ник", "логин", "nickname", "nick"]):
+            if not answer.strip():
+                return False, "⚠️  Никнейм не может быть пустым."
+            if len(answer) > 25:
+                return False, "⚠️  Никнейм слишком длинный (максимум 25 символов)."
+            if len(answer) < 3:
+                return False, "⚠️  Никнейм слишком короткий (минимум 3 символа)."
+        
+        # Проверка уровня
+        if any(word in question_lower for word in ["уровень", "level", "lvl"]):
+            try:
+                level = int(answer)
+                if level < 1 or level > 100:
+                    return False, "⚠️  Уровень должен быть в диапазоне от 1 до 100."
+            except ValueError:
+                return False, "⚠️  Уровень должен быть целым числом."
+        
+        # Проверка часового пояса
+        if any(word in question_lower for word in ["часовой пояс", "таймзона", "timezone", "часовой"]):
+            if not any(word in answer.lower() for word in ["gmt", "utc", "msk", "+", "-"]):
+                return True, "⚠️  Убедитесь, что правильно указали часовой пояс (например, GMT+3, UTC+5, MSK)."
+        
+        # Проверка ссылок
+        if field_type == "link" or field_type == "screenshot":
+            if not answer.startswith(("http://", "https://")):
+                return False, "⚠️  Ссылка должна начинаться с http:// или https://"
+        
+        # Общая проверка на слишком короткий ответ
+        if len(answer.strip()) < 2 and field_type == "text":
+            return True, "⚠️  Ответ очень короткий. Убедитесь, что это правильно."
+        
+        return True, "✅ Ответ принят"
     
     def fill_form(self, title, questions):
         """Заполнение формы"""
@@ -725,8 +842,6 @@ class ImprovedFormGenerator:
     
     def save_results(self, title, filled_questions, bbcode, design, bbcode_hash):
         """Сохранение результатов"""
-        import datetime
-        
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_title = title.replace(" ", "_").replace(":", "").lower()[:20]
         
@@ -780,64 +895,6 @@ class ImprovedFormGenerator:
             print("📋 Скопируйте BB-код выше вручную")
         
         return True, bbcode_hash
-    
-    def run_workflow(self):
-        """Основной рабочий процесс"""
-        # Шаг 1: Ввод формы
-        result = self.get_form_input()
-        if not result:
-            print("❌ Ошибка ввода формы!")
-            return
-        
-        title, questions = result
-        
-        if not questions:
-            print("❌ Не удалось извлечь вопросы из формы!")
-            return
-        
-        print(f"\n✅ Извлечено {len(questions)} вопросов")
-        
-        # Даем возможность удалить вопросы
-        while True:
-            print("\n🎯 ОПЦИИ ФОРМЫ:")
-            print("  1. ✅ Все верно, продолжить заполнение")
-            print("  2. ❌ Удалить ненужные вопросы")
-            print("  3. 🔄 Ввести форму заново")
-            
-            choice = input("\nВаш выбор (1-3): ").strip()
-            
-            if choice == "1":
-                break
-            elif choice == "2":
-                self.remove_questions(questions)
-                if not questions:
-                    print("❌ Все вопросы удалены. Начнем заново.")
-                    return self.run_workflow()
-                break
-            elif choice == "3":
-                return self.run_workflow()
-            else:
-                print("❌ Неверный выбор")
-        
-        input("\n↵ Нажмите Enter чтобы начать заполнение...")
-        
-        # Шаг 2: Заполнение формы
-        filled_questions = self.fill_form(title, questions)
-        if not filled_questions:
-            print("❌ Форма не заполнена!")
-            return
-        
-        # Шаг 3: Предпросмотр
-        filled_questions = self.preview_form(title, filled_questions)
-        if not filled_questions:
-            print("❌ Редактирование отменено!")
-            return
-        
-        # Шаг 4: Выбор оформления
-        design = self.select_design()
-        
-        # Шаг 5: Генерация BB-кода и меню управления
-        self.show_results_menu(title, questions, filled_questions, design)
     
     def show_results_menu(self, title, original_questions, filled_questions, design, last_bbcode_hash=None):
         """Меню управления после генерации BB-кода"""
@@ -945,43 +1002,63 @@ class ImprovedFormGenerator:
                 print("❌ Неверный выбор!")
                 input("\n↵ Нажмите Enter чтобы продолжить...")
     
-    def main_menu(self):
-        """Главное меню"""
+    def run_workflow(self):
+        """Основной рабочий процесс"""
+        # Шаг 1: Ввод формы
+        result = self.get_form_input()
+        if not result:
+            print("❌ Ошибка ввода формы!")
+            return
+        
+        title, questions = result
+        
+        if not questions:
+            print("❌ Не удалось извлечь вопросы из формы!")
+            return
+        
+        print(f"\n✅ Извлечено {len(questions)} вопросов")
+        
+        # Даем возможность удалить вопросы
         while True:
-            self.clear_screen()
-            self.print_title("ГЕНЕРАТОР ФОРМ ДЛЯ BLACKRUSSIA")
+            print("\n🎯 ОПЦИИ ФОРМЫ:")
+            print("  1. ✅ Все верно, продолжить заполнение")
+            print("  2. ❌ Удалить ненужные вопросы")
+            print("  3. 🔄 Ввести форму заново")
             
-            print("🚀 ПРОСТОЙ ПОРЯДОК:")
-            print("  1. Вставить готовую форму (копируешь из темы на форуме)")
-            print("  2. Заполнить ответы")
-            print("  3. Выбрать оформление")
-            print("  4. Получить BB-код")
-            
-            print("\n" + "═" * 40)
-            print("ГЛАВНОЕ МЕНЮ:")
-            print("  1. 🚀 НАЧАТЬ СОЗДАНИЕ ФОРМЫ")
-            print("  2. 📖 ПОКАЗАТЬ ПРИМЕР ФОРМЫ")
-            print("  3. 🎨 ПОСМОТРЕТЬ СТИЛИ")
-            print("  4. 🚪 ВЫХОД")
-            
-            choice = input("\nВаш выбор (1-4): ").strip()
+            choice = input("\nВаш выбор (1-3): ").strip()
             
             if choice == "1":
-                self.run_workflow()
-            
-            elif choice == "2":
-                self.show_example()
-            
-            elif choice == "3":
-                self.show_designs()
-            
-            elif choice == "4":
-                print("\n👋 До свидания!")
                 break
-            
+            elif choice == "2":
+                self.remove_questions(questions)
+                if not questions:
+                    print("❌ Все вопросы удалены. Начнем заново.")
+                    return self.run_workflow()
+                break
+            elif choice == "3":
+                return self.run_workflow()
             else:
-                print("❌ Неверный выбор!")
-                input("\n↵ Нажмите Enter чтобы продолжить...")
+                print("❌ Неверный выбор")
+        
+        input("\n↵ Нажмите Enter чтобы начать заполнение...")
+        
+        # Шаг 2: Заполнение формы
+        filled_questions = self.fill_form(title, questions)
+        if not filled_questions:
+            print("❌ Форма не заполнена!")
+            return
+        
+        # Шаг 3: Предпросмотр
+        filled_questions = self.preview_form(title, filled_questions)
+        if not filled_questions:
+            print("❌ Редактирование отменено!")
+            return
+        
+        # Шаг 4: Выбор оформления
+        design = self.select_design()
+        
+        # Шаг 5: Генерация BB-кода и меню управления
+        self.show_results_menu(title, questions, filled_questions, design)
     
     def show_example(self):
         """Показать пример формы"""
@@ -1029,6 +1106,50 @@ class ImprovedFormGenerator:
             print()
         
         input("\n↵ Нажмите Enter чтобы вернуться...")
+    
+    def main_menu(self):
+        """Главное меню"""
+        while True:
+            self.clear_screen()
+            self.print_title("ГЕНЕРАТОР ФОРМ ДЛЯ BLACKRUSSIA")
+            print(f"📦 Версия: {self.current_version}")
+            
+            print("🚀 ПРОСТОЙ ПОРЯДОК:")
+            print("  1. Вставить готовую форму (копируешь из темы на форуме)")
+            print("  2. Заполнить ответы")
+            print("  3. Выбрать оформление")
+            print("  4. Получить BB-код")
+            
+            print("\n" + "═" * 40)
+            print("ГЛАВНОЕ МЕНЮ:")
+            print("  1. 🚀 НАЧАТЬ СОЗДАНИЕ ФОРМЫ")
+            print("  2. 📖 ПОКАЗАТЬ ПРИМЕР ФОРМЫ")
+            print("  3. 🎨 ПОСМОТРЕТЬ СТИЛИ")
+            print("  4. 🔄 ПРОВЕРИТЬ ОБНОВЛЕНИЯ")
+            print("  5. 🚪 ВЫХОД")
+            
+            choice = input("\nВаш выбор (1-5): ").strip()
+            
+            if choice == "1":
+                self.run_workflow()
+            
+            elif choice == "2":
+                self.show_example()
+            
+            elif choice == "3":
+                self.show_designs()
+            
+            elif choice == "4":
+                self.check_for_updates(silent=False)
+                input("\n↵ Нажмите Enter чтобы продолжить...")
+            
+            elif choice == "5":
+                print("\n👋 До свидания!")
+                break
+            
+            else:
+                print("❌ Неверный выбор!")
+                input("\n↵ Нажмите Enter чтобы продолжить...")
 
 def main():
     """Запуск программы"""
